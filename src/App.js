@@ -24,7 +24,6 @@ class App extends Component {
 
   componentWillMount() {
     // Get network provider and web3 instance.
-    // See utils/getWeb3 for more info.
 
     getWeb3
     .then(results => {
@@ -41,12 +40,6 @@ class App extends Component {
   }
 
   instantiateContract() {
-    /*
-     * SMART CONTRACT EXAMPLE
-     *
-     * Normally these functions would be called in the context of a
-     * state management library, but for convenience I've placed them here.
-     */
 
     const contract = require('truffle-contract')
     const simpleStorage = contract(SimpleStorageContract)
@@ -54,10 +47,12 @@ class App extends Component {
 
     // Get accounts.
     this.state.web3.eth.getAccounts((error, accounts) => {
-      simpleStorage.deployed().then((instance) => {
+      simpleStorage.at('0xbfA0B1040Eb3f4E640D1473A16d0c561AAebBa7e').then((instance) => {
         this.simpleStorageInstance = instance
         this.setState({ account: accounts[0] })
         // Get the value from the contract to prove it worked.
+        console.log('Testing the contract at method:');
+        console.log(this.simpleStorageInstance.get.call(accounts[0]));
         return this.simpleStorageInstance.get.call(accounts[0])
       }).then((ipfsHash) => {
         // Update state with the result.
