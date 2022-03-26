@@ -13,7 +13,7 @@ class App extends Component {
     super(props)
 
     this.state = {
-      ipfsHash: '',
+      ipfsHashes: [],
       web3: null,
       buffer: null,
       account: null
@@ -47,18 +47,38 @@ class App extends Component {
 
     // Get accounts.
     this.state.web3.eth.getAccounts((error, accounts) => {
-      simpleStorage.at('0xbfA0B1040Eb3f4E640D1473A16d0c561AAebBa7e').then((instance) => {
+      simpleStorage.deployed().then((instance) => {
+
         this.simpleStorageInstance = instance
         this.setState({ account: accounts[0] })
-        // Get the value from the contract to prove it worked.
-        console.log('Testing the contract at method:');
-        console.log(this.simpleStorageInstance.get.call(accounts[0]));
-        return this.simpleStorageInstance.get.call(accounts[0])
+
+        //Getting the IPFS Hash String array
+        console.log('Requesting for IPFS Hashes String Array:');
+        console.log(this.simpleStorageInstance.getIpfsHashes.call(accounts[0]));
+
+        return this.simpleStorageInstance.getIpfsHashes.call(accounts[0])
       }).then((ipfsHash) => {
         // Update state with the result.
-        return this.setState({ ipfsHash })
+        
+       // console.log(ipfsHash.length);
+        let hashes_array = [];
+        
+        for (var j = 0; j < ipfsHash.length ; j++) {
+          let latesthash = "";
+          for (var i = 0; i < ipfsHash[j].length; i++) {
+            let num = ipfsHash[j][i].c[0];
+            if(num!==0){
+              latesthash+=(String.fromCharCode(num))
+            }
+          }
+
+          hashes_array.push(latesthash);
+        }
+
+        return this.setState({ ipfsHashes : hashes_array });
       })
     })
+
   }
 
   captureFile(event) {
@@ -74,15 +94,33 @@ class App extends Component {
 
   onSubmit(event) {
     event.preventDefault()
+
+    //Sending buffer to IPFS and getting result hash
     ipfs.files.add(this.state.buffer, (error, result) => {
       if(error) {
         console.error(error)
         return
       }
-      this.simpleStorageInstance.set(result[0].hash, { from: this.state.account }).then((r) => {
-        console.log('ifpsHash', result[0].hash)
+
+      //Iterating over IPFS Hash
+      let str = result[0].hash;
+      let ascii_hash = [];
+
+      for (var i = 0; i < str.length; i++) {
+        //console.log(str.charAt(i));
+        //console.log(str.charAt(i).charCodeAt(0));
+        ascii_hash.push(str.charAt(i).charCodeAt(0));
+      }
+
+      console.log(ascii_hash);
+
+      //Appending IPFS Hash to String Array on Blockchain
+
+      this.simpleStorageInstance.pushToIpfsHashes(ascii_hash, { from: this.state.account }).then((r) => {
+        console.log('ifpsHash Push to Array', result[0].hash)
         return this.setState({ ipfsHash: result[0].hash })
       })
+      
     })
   }
 
@@ -97,11 +135,19 @@ class App extends Component {
           <div className="pure-g">
             <div className="pure-u-1-1">
               <h1>Your Image</h1>
-              <p>This image is stored on IPFS & The Ethereum Blockchain!</p>
-              <p> IPFS HASH: &nbsp; {this.state.ipfsHash}</p>
-              {this.state.ipfsHash!=="" && 
-                <img src={`https://ipfs.io/ipfs/${this.state.ipfsHash}`} alt=""/>
-              }
+              <p>These images are stored on IPFS & The Ethereum Blockchain!</p>
+
+              {this.state.ipfsHashes.length!==0 && 
+                this.state.ipfsHashes.map( (hash,i) => (
+                  <div key={i}>
+                    <p> IPFS HASH: &nbsp; {hash}</p>
+                      {hash!=="" && 
+                        <img src={`https://ipfs.io/ipfs/${hash}`} alt=""/>
+                      }
+                  </div>
+                )
+              )}
+
               <h2>Upload Image</h2>
               <form onSubmit={this.onSubmit} >
                 <input type='file' onChange={this.captureFile} />
