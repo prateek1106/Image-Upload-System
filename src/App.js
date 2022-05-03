@@ -16,6 +16,7 @@ class App extends Component {
       ipfsHashes: [],
       ipfsHashesPublic: [],
       shared: [],
+      myImages: [],
       web3: null,
       buffer: null,
       account: null
@@ -26,7 +27,9 @@ class App extends Component {
     this.convertToAsciiHash = this.convertToAsciiHash.bind(this);
     this.convertToStringHashes = this.convertToStringHashes.bind(this);
     this.shareImage = this.shareImage.bind(this);
-    this.nstantiateContract = this.instantiateContract.bind(this);
+    this.instantiateContract = this.instantiateContract.bind(this);
+    this.getImageAcessInfo = this.getImageAcessInfo.bind(this);
+    this.removeImageAccess = this.removeImageAccess.bind(this);
   }
 
   //Helper Function
@@ -74,6 +77,28 @@ class App extends Component {
     })
   }
 
+  //Helper Function
+  setHashes(ipfsHashList, newList) {
+    const hashes = this.convertToStringHashes(ipfsHashList);
+    const hash_length = hashes.length;
+
+    let new_list = [];
+    for (var i = 0; i < hashes.length; i++) {
+      let hash = hashes[i];
+
+      //Find Owner
+      this.findOwner(hash).then((owner) => {
+        //Find Title
+        this.findTitle(hash).then((title) => {
+          //Assign Owner and Title to New List
+          new_list.push([hash, owner, title]);
+          if(new_list.length===hash_length)
+            this.setState({ [newList]: new_list});
+          });
+      });
+    }
+  }
+
   //Initial Setup Work
   async instantiateContract() {
 
@@ -85,62 +110,70 @@ class App extends Component {
 
     // Get accounts.
     this.state.web3.eth.getAccounts((error, accounts) => {
-      //simpleStorage.deployed().then((instance) => {
-      simpleStorage.at('0xA384Abce590ef2AB0266A09d6086AFB8f30c9017').then((instance) => {
+      simpleStorage.deployed().then((instance) => {
+      //simpleStorage.at('0xA384Abce590ef2AB0266A09d6086AFB8f30c9017').then((instance) => {
 
         this.simpleStorageInstance = instance
         this.setState({ account: accounts[0] })
 
         //Getting the IPFS Hash String array (Private IpfsHash Array)
-        console.log('Requesting for Private IPFS Hashes Array:');
+        console.log('Requesting for Private+Public IPFS Hashes Array:');
         console.log(this.simpleStorageInstance.getIpfsHashes.call(accounts[0]));
         return this.simpleStorageInstance.getIpfsHashes.call(accounts[0]);
 
-      }).then((ipfsHashes) => {
+      }).then((ipfsHashList) => {
 
-        //  Convert ASCII Array to String Array 
-        const hashes = this.convertToStringHashes(ipfsHashes);
+        //Assigning Owner and Title to All Images
+        this.setHashes(ipfsHashList,'ipfsHashes');
 
-        //  Update Owners List with IPFS hashes:
-        let owner_list = [];
-        for(var i = 0; i < hashes.length; i++){
-          let hash = hashes[i];
-          this.findOwner(hash).then((r)=>{
-            owner_list.push([hash,r]);
-            this.setState({ ipfsHashes: owner_list});
-          })
-        }
-
-        //Update Shared List
-        this.simpleStorageInstance.getShared.call(this.state.account, {from: this.state.account})
-        .then((result) => {
-          const hashes = this.convertToStringHashes(result);
-          console.log('Shared Image Fetch Sucessful');
-          this.setState({shared : hashes});
-        })
+        //Assigning My Images List
+        this.getMyImages(ipfsHashList);
 
         //Getting Public IpfsHash Array
         console.log('Requesting for Public IPFS Hashes Array:');
         console.log(this.simpleStorageInstance.getIpfsHashesPublic.call(accounts[0]));
         return this.simpleStorageInstance.getIpfsHashesPublic.call(accounts[0]);
 
-      }).then((ipfsHashesPublic) => {
+      }).then((ipfsHashList) => {
 
-        //  Convert ASCII Array to String Array 
-        const publicHashes = this.convertToStringHashes(ipfsHashesPublic);
+        //Assigning Owner and Title to Public Images
+        this.setHashes(ipfsHashList,'ipfsHashesPublic');
 
-        //  Update Owners List with Public IPFS hashes:
-        let owner_list = [];
-        for(var i = 0; i < publicHashes.length; i++){
-          let hash = publicHashes[i];
-          this.findOwner(hash).then((r)=>{
-            owner_list.push([hash,r]);
-            this.setState({ ipfsHashesPublic: owner_list});
-          })
-        }
+        //Update Shared List
+        return this.simpleStorageInstance.getShared.call(this.state.account, {from: this.state.account});
 
-      })
+      }).then((sharedList) => {
+        
+        //Assigning Owner and Title to Shared Images
+        this.setHashes(sharedList,'shared');
+      }) 
     })
+  }
+
+  //Helper Function for assigning my images array with public / private info
+  getMyImages(ipfsHashList) {
+    const hashes = this.convertToStringHashes(ipfsHashList);
+    const hash_length = hashes.length;
+
+    let my_images = [];
+    for (var i = 0; i < hashes.length; i++) {
+      let hash = hashes[i];
+
+      //Find Owner
+      this.findOwner(hash).then((owner) => {
+          //Find Title
+          this.findTitle(hash).then((title) => {
+            //Find Public / Private Info
+            this.findAcessibility(hash).then((acessibility) => {
+              //Assign Owner, Title, and Acessibility Info to List
+
+              my_images.push([hash, owner, title, (acessibility===true?"Public":"Private")]);
+              if(my_images.length===hash_length)
+                this.setState({ myImages: my_images});
+            });
+          });
+      });
+    }
   }
 
   captureFile(event) {
@@ -158,6 +191,7 @@ class App extends Component {
     event.preventDefault()
     
     const acessibility = event.target.acessibility.value;
+    const title = event.target.title.value;
 
     //Sending buffer to IPFS and getting result hash
     ipfs.files.add(this.state.buffer, (error, result) => {
@@ -170,19 +204,19 @@ class App extends Component {
 
       if(acessibility==="1"){
         //Upload To Public 
-        this.simpleStorageInstance.uploadToPublic(ascii_hash, result[0].hash, this.state.account, 
+        this.simpleStorageInstance.uploadToPublic(ascii_hash, result[0].hash, this.state.account, title,
           {from: this.state.account}).then((r) => {
             console.log('Successfully Uploaded');
           })
       }
       else{
         //Upload To Private
-        this.simpleStorageInstance.uploadToPrivate(ascii_hash, result[0].hash, this.state.account, 
+        this.simpleStorageInstance.uploadToPrivate(ascii_hash, result[0].hash, this.state.account, title,
         {from: this.state.account}).then((r) => {
           console.log('Successfully Uploaded');
         })
       }
-
+    
     });
   }
 
@@ -196,6 +230,26 @@ class App extends Component {
     return owner;
   }
 
+  //HELPER FUNCTION which calls Get Title Method of Smart Contract
+  async findTitle(hash) {
+    let title;
+    await this.simpleStorageInstance.getTitle.call(hash, { from: this.state.account })
+    .then((result) => {
+      title = result;
+    })
+    return title;
+  }
+
+  //HELPER FUNCTION which calls Get Acessibility Method of Smart Contract
+  async findAcessibility(hash) {
+    let acessibility;
+    await this.simpleStorageInstance.getAcessibility.call(hash, { from: this.state.account })
+    .then((result) => {
+      acessibility = result;
+    })
+    return acessibility;
+  }
+
   //Function to handle 'Sharing Access of Image'
   shareImage(event){
     event.preventDefault();
@@ -203,14 +257,51 @@ class App extends Component {
     const ipfsHash = event.target.ipfsHash.value;
     const senderAccount = event.target.senderAccount.value;
     
-    const ascii_hash = this.convertToAsciiHash(ipfsHash)
-    console.log(ascii_hash);
+    const ascii_hash = this.convertToAsciiHash(ipfsHash);
+    const account_hash = this.convertToAsciiHash(senderAccount);
+    //console.log(ascii_hash);
+    //console.log(account_hash);
 
-    this.simpleStorageInstance.setShared(senderAccount,ascii_hash, { from: this.state.account })
-    .then((r) => {
-      console.log('Success in sharing image');
+    this.simpleStorageInstance.shareAccess(senderAccount, ascii_hash, ipfsHash, account_hash ,
+      {from: this.state.account})
+      .then((r => {
+        console.log('Success in sharing image');
+      }))
+
+  }
+
+  //Function to find what all accounts have access to particular image
+  getImageAcessInfo(event) {
+    event.preventDefault();
+    const ipfsHash = event.target.ipfsHash.value;
+
+    this.simpleStorageInstance.getImageAccess.call(ipfsHash, {from: this.state.account})
+    .then((result) => {
+      console.log('List of Accounts which have access: ');
+      //console.log(result);
+      const accounts = this.convertToStringHashes(result);
+      console.log(accounts);
+      return accounts;
+
     })
+  }
 
+  removeImageAccess(event) {
+    event.preventDefault();
+
+    const ipfsHash = event.target.ipfsHash.value;
+    const senderAccount = event.target.senderAccount.value;
+
+    const ascii_hash = this.convertToAsciiHash(ipfsHash);
+    const account_hash = this.convertToAsciiHash(senderAccount);
+    //console.log(ascii_hash);
+    //console.log(account_hash);
+
+    this.simpleStorageInstance.removeAccess(senderAccount, ascii_hash, ipfsHash, account_hash ,
+      {from: this.state.account})
+      .then((r => {
+        console.log('Success in removing image access');
+      }))
   }
 
   render() {
@@ -230,6 +321,7 @@ class App extends Component {
                       {hash[0]!=="" && 
                         <div>
                           <p>Owner: &nbsp; {hash[1]}</p>
+                          <p>Title: &nbsp; {hash[2]}</p>
                           <img src={`https://ipfs.io/ipfs/${hash[0]}`} alt=""/>
                         </div>
                       }
@@ -240,7 +332,8 @@ class App extends Component {
               <h2>Upload Image</h2>
               <form onSubmit={this.onSubmit} >
                 <input type='file' onChange={this.captureFile} /><br/>
-                
+                Title: <input type="text" name="title"/><br/>
+
                 Accessibility:<br/>
                 <input type="radio" id="private" name="acessibility" value="0"/>
                 <label htmlFor="private">Private</label><br/>
@@ -251,13 +344,16 @@ class App extends Component {
               </form>
 
               <h2>My Images</h2>
-              {(this.state.ipfsHashes.length!==0) &&
-                this.state.ipfsHashes.map( (hash,i) => (
-                  hash[1]===this.state.account && 
+              {(this.state.myImages.length!==0) &&
+                this.state.myImages.map( (hash,i) => (
+                  hash[1] === this.state.account &&
                     <div key={i}>
                       <p> IPFS HASH: &nbsp; {hash[0]}</p>
                         {hash[0]!=="" && 
                           <div>
+                            <p>Owner: &nbsp; {hash[1]}</p>
+                            <p>Title: &nbsp; {hash[2]}</p>
+                            <p>Accessibility: {hash[3]}</p>
                             <img src={`https://ipfs.io/ipfs/${hash[0]}`} alt=""/>
                           </div>
                         }
@@ -272,14 +368,29 @@ class App extends Component {
                 <input type='submit'/>
               </form>
 
+              <h2>Remove access of my image from someone else</h2>
+              <form onSubmit={this.removeImageAccess} >
+                <input type='text' name='ipfsHash' placeholder='IPFS hash (remove later)'/><br/>
+                <input type='text' name='senderAccount' placeholder='account'/><br/>
+                <input type='submit'/>
+              </form>
+
+              <h2>Get Image Access Info</h2>
+              <form onSubmit={this.getImageAcessInfo} >
+                <input type='text' name='ipfsHash' placeholder='IPFS hash'/><br/>
+                <input type='submit'/>
+              </form>
+
               <h2>Images Shared with me</h2>
               {(this.state.shared.length!==0) &&
                 this.state.shared.map( (hash,i) => (
                   <div key={i}>
-                    <p> IPFS HASH: &nbsp; {hash}</p>
-                      {hash!=="" && 
+                    <p> IPFS HASH: &nbsp; {hash[0]}</p>
+                      {hash[0]!=="" && 
                         <div>
-                          <img src={`https://ipfs.io/ipfs/${hash}`} alt=""/>
+                          <p>Owner: &nbsp; {hash[1]}</p>
+                          <p>Title: &nbsp; {hash[2]}</p>
+                          <img src={`https://ipfs.io/ipfs/${hash[0]}`} alt=""/>
                         </div>
                       }
                   </div>
